@@ -26,6 +26,9 @@
           ];
           shellHook = ''
             echo "node `${pkgs.nodejs}/bin/node --version`"
+            
+            # TODO: find a way to move this to dependencies instead of running in the shellHook
+            npm install @rollup/plugin-typescript --save-dev
           '';
         };
     };
