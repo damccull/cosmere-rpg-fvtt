@@ -4,15 +4,18 @@ import {
     ActivationType,
     ActionCostType,
 } from '@system/types/cosmere';
-import { CosmereItem, CosmereActor } from '@system/documents';
+import { ItemListSection } from '@system/types/application/actor/components/item-list';
+
+// Documents
+import { CosmereItem } from '@system/documents/item';
+import { CosmereActor } from '@system/documents/actor';
 
 // Components
 import {
     ActorActionsListComponent,
     ActorActionsListComponentRenderContext,
-    ListSection,
 } from '../actions-list';
-import { SortDirection } from '../search-bar';
+import { SortMode } from '../search-bar';
 
 // Constants
 
@@ -50,7 +53,7 @@ export class AdversaryActionsListComponent extends ActorActionsListComponent {
         ];
 
         const searchText = context.actionsSearch?.text ?? '';
-        const sortDir = context.actionsSearch?.sort ?? SortDirection.Descending;
+        const sortMode = context.actionsSearch?.sort ?? SortMode.Alphabetic;
 
         return {
             ...context,
@@ -60,19 +63,19 @@ export class AdversaryActionsListComponent extends ActorActionsListComponent {
                     this.sections[0],
                     activatableItems,
                     searchText,
-                    sortDir,
+                    sortMode,
                 ),
                 await this.prepareSectionData(
                     this.sections[1],
                     activatableItems,
                     searchText,
-                    sortDir,
+                    sortMode,
                 ),
                 await this.prepareSectionData(
                     this.sections[2],
                     activatableItems,
                     searchText,
-                    sortDir,
+                    sortMode,
                 ),
             ].filter(
                 (section) =>
@@ -86,7 +89,7 @@ export class AdversaryActionsListComponent extends ActorActionsListComponent {
 
     /* --- Helpers --- */
 
-    private prepareSection(type: ItemType): ListSection {
+    private prepareSection(type: ItemType): ItemListSection {
         return {
             id: type,
             label: CONFIG.COSMERE.items.types[type].labelPlural,
@@ -121,20 +124,21 @@ export class AdversaryActionsListComponent extends ActorActionsListComponent {
     }
 
     private async prepareSectionData(
-        section: ListSection,
+        section: ItemListSection,
         items: CosmereItem[],
         searchText: string,
-        sort: SortDirection,
+        sort: SortMode,
     ) {
         // Get items for section, filter by search text, and sort
-        const sectionItems = items
+        let sectionItems = items
             .filter(section.filter)
-            .filter((i) => i.name.toLowerCase().includes(searchText))
-            .sort(
-                (a, b) =>
-                    a.name.compare(b.name) *
-                    (sort === SortDirection.Descending ? 1 : -1),
+            .filter((i) => i.name.toLowerCase().includes(searchText));
+
+        if (sort === SortMode.Alphabetic) {
+            sectionItems = sectionItems.sort(
+                (a, b) => a.name.compare(b.name) * -1,
             );
+        }
 
         return {
             ...section,

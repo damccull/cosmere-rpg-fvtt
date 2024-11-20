@@ -19,7 +19,12 @@ export default {
         // Removes the hash from the asset filename
         assetFileNames: '[name][extname]',
     },
+    external: [
+        '@pixi/core'
+    ],
     plugins: [
+        clearOutputDir(),
+
         // CSS
         scss(),
 
@@ -43,12 +48,42 @@ export default {
         markdownParser({
             targets: [
                 { src: 'src/release-notes.md', dest: 'build/' },
+                { src: 'src/patch-notes.md', dest: 'build/' },
             ],
         }),
+        pixiImportFix(),
     ],
 };
 
 /* --- Custom Plugins --- */
+
+/**
+ * Rollup plugin to clear the contents of the output directory before building.
+ */
+function clearOutputDir() {
+    return {
+        name: 'clear-output-dir',
+        buildStart() {
+            const outputDir = 'build';
+
+            // Check if the output directory exists
+            if (fs.existsSync(outputDir)) {
+                // Get all output directory contents
+                const files = fs.readdirSync(outputDir)
+                    .filter(file => file !== 'packs') // Ignore packs directory
+                    .map(file => path.join(outputDir, file));
+
+                // Remove all files in the output directory
+                files.forEach(file => {
+                    fs.rmSync(file, { recursive: true, force: true });
+                });
+            } else {
+                // Ensure the output directory exists
+                fs.mkdirSync(outputDir);
+            }
+        }
+    }
+}
 
 function markdownParser(config) {
     return {
@@ -77,10 +112,29 @@ function markdownParser(config) {
 
                 // Construct the destination path
                 const dest = path.join(srcPath, config.targets[index].dest, `${fileName}.html`);
+                const destDir = path.join(srcPath, config.targets[index].dest);
+                if(!fs.existsSync(destDir)){
+                    fs.mkdirSync(destDir);
+                }
 
                 // Write the parsed markdown to the destination path
                 fs.writeFileSync(dest, `<div>${markdown}</div>`);
             });
         } 
+    }
+}
+
+function pixiImportFix() {
+    return {
+        name: 'pixi-import-fix',
+        renderChunk: (code, chunk, options, meta) => {
+            return code.replace(
+                "import { Filter, utils } from '@pixi/core';",
+                [
+                    'const Filter = PIXI.Filter;',
+                    'const utils = PIXI.utils;',
+                ].join('\n')
+            )
+        }
     }
 }

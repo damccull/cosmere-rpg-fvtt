@@ -1,6 +1,7 @@
 import { CultureItem } from '@system/documents/item';
-
 import { ConstructorOf } from '@system/types/utils';
+import { SYSTEM_ID } from '@src/system/constants';
+import { TEMPLATES } from '@src/system/utils/templates';
 
 // Component imports
 import { HandlebarsApplicationComponent } from '@system/applications/component-system';
@@ -17,8 +18,7 @@ export class CharacterCultureComponent extends HandlebarsApplicationComponent<
     ConstructorOf<CharacterSheet>,
     Params
 > {
-    static TEMPLATE =
-        'systems/cosmere-rpg/templates/actors/character/components/culture.hbs';
+    static TEMPLATE = `systems/${SYSTEM_ID}/templates/${TEMPLATES.ACTOR_CHARACTER_CULTURE}`;
 
     /**
      * NOTE: Unbound methods is the standard for defining actions
@@ -41,6 +41,16 @@ export class CharacterCultureComponent extends HandlebarsApplicationComponent<
         void this.params!.culture.sheet?.render(true);
     }
 
+    /* --- Accessors --- */
+
+    public get item(): CultureItem {
+        return this.params!.culture;
+    }
+
+    public get culture(): CultureItem {
+        return this.params!.culture;
+    }
+
     /* --- Context --- */
 
     public _prepareContext(
@@ -51,9 +61,30 @@ export class CharacterCultureComponent extends HandlebarsApplicationComponent<
             ...context,
 
             culture: {
-                label: params.culture.name,
-                img: params.culture.img,
+                label: this.culture.name,
+                img: this.culture.img,
             },
+            skills: this.culture.hasLinkedSkills()
+                ? this.culture.system.linkedSkills
+                      .filter(
+                          (skillId) =>
+                              this.application.actor.system.skills[skillId]
+                                  .unlocked === true,
+                      )
+                      .map((skillId) => ({
+                          id: skillId,
+                          label: CONFIG.COSMERE.skills[skillId].label,
+                          attribute: CONFIG.COSMERE.skills[skillId].attribute,
+                          attributeLabel:
+                              CONFIG.COSMERE.attributes[
+                                  CONFIG.COSMERE.skills[skillId].attribute
+                              ].label,
+                          rank: this.application.actor.system.skills[skillId]
+                              .rank,
+                          mod: this.application.actor.system.skills[skillId]
+                              .mod,
+                      }))
+                : [],
         });
     }
 }

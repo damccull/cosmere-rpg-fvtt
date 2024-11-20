@@ -1,17 +1,25 @@
 import { EquipHand, ItemType } from '@system/types/cosmere';
+import { ConstructorOf } from '@system/types/utils';
+import { ItemListSection } from '@system/types/application/actor/components/item-list';
+
+// Documents
 import { CosmereItem } from '@system/documents/item';
 import { CosmereActor } from '@system/documents/actor';
-import { ConstructorOf } from '@system/types/utils';
-
-import { AppContextMenu } from '@system/applications/utils/context-menu';
 
 // Utils
 import AppUtils from '@system/applications/utils';
+import { AppContextMenu } from '@system/applications/utils/context-menu';
 
 // Component imports
 import { HandlebarsApplicationComponent } from '@system/applications/component-system';
 import { BaseActorSheet, BaseActorSheetRenderContext } from '../base';
-import { SortDirection } from './search-bar';
+import { SortMode } from './search-bar';
+
+// Constants
+import { SYSTEM_ID } from '@src/system/constants';
+import { TEMPLATES } from '@src/system/utils/templates';
+import { areKeysPressed } from '@src/system/utils/generic';
+import { KEYBINDINGS } from '@src/system/settings';
 
 interface EquipmentItemState {
     expanded?: boolean;
@@ -21,35 +29,7 @@ interface AdditionalItemData {
     descriptionHTML?: string;
 }
 
-export interface ListSection {
-    /**
-     * The id of the section
-     */
-    id: string;
-
-    /**
-     * Nicely formatted label for the section
-     */
-    label: string;
-
-    /**
-     * Whether this section counts as default.
-     * Default sections are always shown in edit mode, even if they are empty.
-     */
-    default: boolean;
-
-    /**
-     * Filter function to determine if an item should be included in this section
-     */
-    filter: (item: CosmereItem) => boolean;
-
-    /**
-     * Factory function to create a new item of this type
-     */
-    new?: (parent: CosmereActor) => Promise<CosmereItem | null | undefined>;
-}
-
-export interface ListSectionData extends ListSection {
+interface ListSectionData extends ItemListSection {
     items: CosmereItem[];
     itemData: Record<string, AdditionalItemData>;
 }
@@ -57,15 +37,14 @@ export interface ListSectionData extends ListSection {
 interface RenderContext extends BaseActorSheetRenderContext {
     equipmentSearch: {
         text: string;
-        sort: SortDirection;
+        sort: SortMode;
     };
 }
 
 export class ActorEquipmentListComponent extends HandlebarsApplicationComponent<
     ConstructorOf<BaseActorSheet>
 > {
-    static TEMPLATE =
-        'systems/cosmere-rpg/templates/actors/components/equipment-list.hbs';
+    static TEMPLATE = `systems/${SYSTEM_ID}/templates/${TEMPLATES.ACTOR_BASE_EQUIPMENT_LIST}`;
 
     /**
      * NOTE: Unbound methods is the standard for defining actions
@@ -83,7 +62,7 @@ export class ActorEquipmentListComponent extends HandlebarsApplicationComponent<
     };
     /* eslint-enable @typescript-eslint/unbound-method */
 
-    protected sections: ListSection[] = [];
+    protected sections: ItemListSection[] = [];
 
     /**
      * Map of id to state
@@ -107,9 +86,15 @@ export class ActorEquipmentListComponent extends HandlebarsApplicationComponent<
 
         // Set classes
         itemElement.toggleClass('expanded', this.itemState[itemId].expanded);
-        $(this.element!)
-            .find(`.details[data-item-id="${itemId}"]`)
-            .toggleClass('expanded', this.itemState[itemId].expanded);
+
+        itemElement
+            .find('a[data-action="toggle-action-details"')
+            .empty()
+            .append(
+                this.itemState[itemId].expanded
+                    ? '<i class="fa-solid fa-compress"></i>'
+                    : '<i class="fa-solid fa-expand"></i>',
+            );
     }
 
     public static onUseItem(this: ActorEquipmentListComponent, event: Event) {
@@ -198,36 +183,52 @@ export class ActorEquipmentListComponent extends HandlebarsApplicationComponent<
         this: ActorEquipmentListComponent,
         event: Event,
     ) {
-        // Get item
-        const item = AppUtils.getItemFromEvent(event, this.application.actor);
-        if (!item) return;
-        if (!item.isPhysical()) return;
-
-        await item.update(
-            {
-                'system.quantity': Math.max(0, item.system.quantity - 1),
-            },
-            { render: false },
-        );
-        await this.render();
+        await this.triggerQuantityChange(event, false);
     }
 
     public static async onIncreaseQuantity(
         this: ActorEquipmentListComponent,
         event: Event,
     ) {
+        await this.triggerQuantityChange(event, true);
+    }
+
+    /* --- Event handlers --- */
+    private triggerCurrencyChange() {
+        const event = new CustomEvent('currency', {});
+
+        this.element!.dispatchEvent(event);
+    }
+
+    private async triggerQuantityChange(
+        this: ActorEquipmentListComponent,
+        event: Event,
+        increase = true,
+    ) {
         // Get item
         const item = AppUtils.getItemFromEvent(event, this.application.actor);
         if (!item) return;
         if (!item.isPhysical()) return;
 
+        let modifier = increase ? 1 : -1;
+
+        if (areKeysPressed(KEYBINDINGS.CHANGE_QUANTITY_BY_5)) {
+            modifier *= 5;
+        } else if (areKeysPressed(KEYBINDINGS.CHANGE_QUANTITY_BY_10)) {
+            modifier *= 10;
+        } else if (areKeysPressed(KEYBINDINGS.CHANGE_QUANTITY_BY_50)) {
+            modifier *= 50;
+        }
+
         await item.update(
             {
-                'system.quantity': item.system.quantity + 1,
+                'system.quantity': item.system.quantity + modifier,
             },
             { render: false },
         );
         await this.render();
+
+        this.triggerCurrencyChange();
     }
 
     /* --- Context --- */
@@ -273,7 +274,7 @@ export class ActorEquipmentListComponent extends HandlebarsApplicationComponent<
         };
     }
 
-    protected prepareSection(type: ItemType): ListSection {
+    protected prepareSection(type: ItemType): ItemListSection {
         return {
             id: type,
             label: CONFIG.COSMERE.items.types[type].labelPlural,
@@ -293,20 +294,19 @@ export class ActorEquipmentListComponent extends HandlebarsApplicationComponent<
     }
 
     protected async prepareSectionData(
-        section: ListSection,
+        section: ItemListSection,
         items: CosmereItem[],
         filterText: string,
-        sort: SortDirection,
+        sort: SortMode,
     ) {
         // Get items for section, filter by search text, and sort
-        const sectionItems = items
+        let sectionItems = items
             .filter(section.filter)
-            .filter((i) => i.name.toLowerCase().includes(filterText))
-            .sort(
-                (a, b) =>
-                    a.name.compare(b.name) *
-                    (sort === SortDirection.Descending ? 1 : -1),
-            );
+            .filter((i) => i.name.toLowerCase().includes(filterText));
+
+        if (sort === SortMode.Alphabetic) {
+            sectionItems = sectionItems.sort((a, b) => a.name.compare(b.name));
+        }
 
         return {
             ...section,
@@ -325,6 +325,10 @@ export class ActorEquipmentListComponent extends HandlebarsApplicationComponent<
                         ? {
                               descriptionHTML: await TextEditor.enrichHTML(
                                   item.system.description.value,
+                                  {
+                                      relativeTo: (item as CosmereItem).system
+                                          .parent as foundry.abstract.Document.Any,
+                                  },
                               ),
                           }
                         : {}),
@@ -339,43 +343,69 @@ export class ActorEquipmentListComponent extends HandlebarsApplicationComponent<
     public _onInitialize(): void {
         if (this.application.isEditable) {
             // Create context menu
-            AppContextMenu.create(
-                this as AppContextMenu.Parent,
-                'right',
-                [
-                    {
-                        name: 'GENERIC.Button.Edit',
-                        icon: 'fa-solid fa-pen-to-square',
-                        callback: (element) => {
-                            const item = AppUtils.getItemFromElement(
-                                element,
-                                this.application.actor,
-                            );
-                            if (!item) return;
+            AppContextMenu.create({
+                parent: this as AppContextMenu.Parent,
+                items: (element) => {
+                    // Get item id
+                    const itemId = $(element)
+                        .closest('.item[data-item-id]')
+                        .data('item-id') as string;
 
-                            void item.sheet?.render(true);
-                        },
-                    },
-                    {
-                        name: 'GENERIC.Button.Remove',
-                        icon: 'fa-solid fa-trash',
-                        callback: (element) => {
-                            const item = AppUtils.getItemFromElement(
-                                element,
-                                this.application.actor,
-                            );
-                            if (!item) return;
+                    // Get item
+                    const item = this.application.actor.items.get(itemId)!;
 
-                            // Remove the item
-                            void this.application.actor.deleteEmbeddedDocuments(
-                                'Item',
-                                [item.id],
-                            );
+                    // Check if actor is character
+                    const isCharacter = this.application.actor.isCharacter();
+
+                    // Check if item is favorited
+                    const isFavorite = item.isFavorite;
+
+                    return [
+                        // Favorite (only for characters)
+                        isCharacter
+                            ? isFavorite
+                                ? {
+                                      name: 'GENERIC.Button.RemoveFavorite',
+                                      icon: 'fa-solid fa-star',
+                                      callback: () => {
+                                          void item.clearFavorite();
+                                      },
+                                  }
+                                : {
+                                      name: 'GENERIC.Button.Favorite',
+                                      icon: 'fa-solid fa-star',
+                                      callback: () => {
+                                          void item.markFavorite(
+                                              this.application.actor.favorites
+                                                  .length,
+                                          );
+                                      },
+                                  }
+                            : null,
+
+                        {
+                            name: 'GENERIC.Button.Edit',
+                            icon: 'fa-solid fa-pen-to-square',
+                            callback: () => {
+                                void item.sheet?.render(true);
+                            },
                         },
-                    },
-                ],
-                'a[data-action="toggle-actions-controls"]',
-            );
+                        {
+                            name: 'GENERIC.Button.Remove',
+                            icon: 'fa-solid fa-trash',
+                            callback: () => {
+                                // Remove the item
+                                void this.application.actor.deleteEmbeddedDocuments(
+                                    'Item',
+                                    [item.id],
+                                );
+                            },
+                        },
+                    ].filter((i) => !!i);
+                },
+                selectors: ['a[data-action="toggle-actions-controls"]'],
+                anchor: 'right',
+            });
         }
     }
 }
