@@ -4,9 +4,10 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   };
   outputs =
-    { self
-    , nixpkgs
-    , ...
+    {
+      self,
+      nixpkgs,
+      ...
     }:
     let
       system = "x86_64-linux";
@@ -20,13 +21,13 @@
         in
         pkgs.mkShell {
           packages = with pkgs; [
-            nodejs_18
+            nodejs_20
             nodePackages.pnpm
-            (yarn.override { nodejs = nodejs_18; })
+            (yarn.override { nodejs = nodejs_20; })
           ];
           shellHook = ''
             echo "node `${pkgs.nodejs}/bin/node --version`"
-            
+
             # TODO: find a way to move this to dependencies instead of running in the shellHook
             npm install @rollup/plugin-typescript --save-dev
           '';
